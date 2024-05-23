@@ -4,6 +4,25 @@
   
   
   <entry>
+    <title>KernelSU修改管理器包名</title>
+    <link href="/2024/05/23/KernelSUModifyPackagename/"/>
+    <url>/2024/05/23/KernelSUModifyPackagename/</url>
+    
+    <content type="html"><![CDATA[<h1 id=""><a href="#" class="headerlink" title=""></a>KernelSU修改管理器包名</h1><p>KernelSU在隐藏Root方面效果很好。在用户层的检查中目前没发现能直接检查KernelSU的，除了KernelSU管理器。管理器固定包名“me.weishu.kernelsu”。</p><h2 id="目标"><a href="#目标" class="headerlink" title="目标"></a>目标</h2><p>修改KernelSU管理器固定包名为自定义名称，规避包名检查。</p><h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>在Kernel代码部分<a href="https://github.com/tiann/KernelSU/blob/v0.9.4/kernel/apk_sign.c#L317">apk_sign.c</a>中对apk文件检查签名判断。</p><center><img src="/2024/05/23/KernelSUModifyPackagename/sign_check.png" class="" title="kernel签名判断"></center></p></p><p>在<a href="https://github.com/tiann/KernelSU/blob/v0.9.4/kernel/Makefile#L45">Makefile</a>中定义了签名数据大小和SHA256值。KSU_MANAGER_PACKAGE参数强制指定管理器包名。当存在多个签名相同的应用时就需要强制指定管理器包名。</p><center><img src="/2024/05/23/KernelSUModifyPackagename/default_sign.png" class="" title="默认签名"></center></p></p><p>注意在<a href="https://github.com/tiann/KernelSU/blob/v0.9.4/kernel/apk_sign.c#L95">代码</a>中指定了签名证书缓存大小，当使用的签名证书大小超过该大小时需要手动修改。</p><center><img src="/2024/05/23/KernelSUModifyPackagename/sign_size.png" class="" title="签名证书缓存大小"></center></p></p><h2 id="修改"><a href="#修改" class="headerlink" title="修改"></a>修改</h2><p>在KernelSU环境下使用以下命令获取签名证书大小和SHA256值。将值填入Makefile中，重编译Kernel。</p><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs shell">ksud debug get-sign [apk文件路径]<br></code></pre></td></tr></table></figure><center><img src="/2024/05/23/KernelSUModifyPackagename/get_sign.png" class="" title="获取SHA256"></center></p></p><p>Android Studio打开管理器源码修改<a href="https://github.com/tiann/KernelSU/blob/v0.9.4/manager/app/build.gradle.kts#L22">build.gradle.kts</a>修改当前包名。将AndroidManifest.xml中对应的Application类和Activity类名修改。完成后打包Apk使用指定的证书签名即可。</p><center><img src="/2024/05/23/KernelSUModifyPackagename/packagename.png" class="" title="修改包名"></center></p></p>]]></content>
+    
+    
+    
+    <tags>
+      
+      <tag>Kernel</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>Android脱壳机</title>
     <link href="/2024/01/29/Unpacker/"/>
     <url>/2024/01/29/Unpacker/</url>
