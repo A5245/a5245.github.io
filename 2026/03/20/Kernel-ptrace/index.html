@@ -1,0 +1,767 @@
+
+
+<!DOCTYPE html>
+<html lang="en" data-default-color-scheme=auto>
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/img/fluid.png">
+  <link rel="icon" href="/img/fluid.png">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+  <meta name="theme-color" content="#101324">
+  <meta name="author" content="a5245">
+  <meta name="keywords" content="">
+  
+    <meta name="description" content="Kernel ptrace本文的目标是：分析ptrace运行原理。下文中使用Linux Kernel 5.10.245为蓝本构建。 ptrace() 系统调用是 Linux 提供的一个调试进程的工具，ptrace() 系统调用非常强大，它提供非常多的调试方式让我们去调试某一个进程，下面是 ptrace() 系统调用的定义： 1SYSCALL_DEFINE4(ptrace, long, reques">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Kernel ptrace">
+<meta property="og:url" content="https://a5245.github.io/2026/03/20/Kernel-ptrace/index.html">
+<meta property="og:site_name" content="A5245&#39;s Blog">
+<meta property="og:description" content="Kernel ptrace本文的目标是：分析ptrace运行原理。下文中使用Linux Kernel 5.10.245为蓝本构建。 ptrace() 系统调用是 Linux 提供的一个调试进程的工具，ptrace() 系统调用非常强大，它提供非常多的调试方式让我们去调试某一个进程，下面是 ptrace() 系统调用的定义： 1SYSCALL_DEFINE4(ptrace, long, reques">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-03-20T05:59:07.000Z">
+<meta property="article:modified_time" content="2026-03-22T05:28:20.216Z">
+<meta property="article:author" content="a5245">
+<meta property="article:tag" content="Kernel">
+<meta property="article:tag" content="Ptrace">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  
+  <title>Kernel ptrace - A5245&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/github-markdown-css/4.0.0/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/hint.css/2.7.0/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/fancybox/3.5.7/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+    <link id="highlight-css-dark" rel="stylesheet" href="/css/highlight-dark.css" />
+  
+
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"a5245.github.io","root":"/","version":"1.9.9","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"left","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"expand_all":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":false,"follow_dnt":true,"baidu":null,"google":{"measurement_id":null},"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"openkounter":{"server_url":"https://open-kounter.mintimate.cn","path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+
+  
+<meta name="generator" content="Hexo 7.2.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>A5245&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content (desktop) -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>Home</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/tags/" target="_self">
+                <i class="iconfont icon-tags-fill"></i>
+                <span>Tags</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+          <li class="nav-item" id="color-toggle-btn">
+            <a class="nav-link" target="_self" href="javascript:;" aria-label="Color Toggle">
+              <i class="iconfont icon-dark" id="color-toggle-icon"></i>
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<!-- Mobile grid menu overlay -->
+<div id="mobile-grid-menu" class="d-lg-none">
+  <div class="mobile-grid-menu-inner">
+    <div class="container">
+      <div class="row">
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-home-fill"></i>
+                  <span>Home</span>
+                </div>
+              </a>
+            </div>
+          
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/tags/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-tags-fill"></i>
+                  <span>Tags</span>
+                </div>
+              </a>
+            </div>
+          
+        
+        
+          <div class="col-4 mobile-grid-cell" id="mobile-search-btn">
+            <a href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <div class="mobile-grid-item">
+                <i class="iconfont icon-search"></i>
+                <span>Search</span>
+              </div>
+            </a>
+          </div>
+        
+        
+          <div class="col-4 mobile-grid-cell" id="mobile-color-toggle-btn"
+               data-label-light="Light"
+               data-label-dark="Dark">
+            <a href="javascript:;" aria-label="Color Toggle">
+              <div class="mobile-grid-item">
+                <i class="iconfont icon-dark" id="mobile-color-toggle-icon"></i>
+                <span id="mobile-color-toggle-label">Dark</span>
+              </div>
+            </a>
+          </div>
+        
+      </div>
+    </div>
+  </div>
+</div>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('/img/default.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Kernel ptrace"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2026-03-20 13:59" pubdate>
+          March 20, 2026 pm
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          36k words
+        
+      </span>
+    
+
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Kernel ptrace</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h1 id=""><a href="#" class="headerlink" title=""></a>Kernel ptrace</h1><p>本文的目标是：分析ptrace运行原理。下文中使用<strong>Linux Kernel 5.10.245</strong>为蓝本构建。</p>
+<p>ptrace() 系统调用是 Linux 提供的一个调试进程的工具，ptrace() 系统调用非常强大，它提供非常多的调试方式让我们去调试某一个进程，下面是 ptrace() 系统调用的定义：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs c">SYSCALL_DEFINE4(ptrace, <span class="hljs-type">long</span>, request, <span class="hljs-type">long</span>, pid, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, addr, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, data)<br></code></pre></td></tr></table></figure>
+
+<h2 id="附加"><a href="#附加" class="headerlink" title="附加"></a>附加</h2><p>通过PTRACE_ATTACH、PTRACE_SEIZE或PTRACE_TRACEME调用ptrace启用调试附加。</p>
+<p>首先了解在task_struct中ptrace设置的状态，下面是task_struct中与ptrace有关的几个字段。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> &#123;</span><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * This begins the randomizable portion of task_struct. Only</span><br><span class="hljs-comment">	 * scheduling-critical items should be added above here.</span><br><span class="hljs-comment">	 */</span><br>	randomized_struct_fields_start<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * 用于标记当前ptrace模式设置参数，比如PT_PTRACED、PT_SEIZED</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-type">unsigned</span> <span class="hljs-type">int</span>			ptrace;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * 退出状态ptrace下与非ptrace退出状态有区别</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-type">int</span>				exit_state;<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * 在ptrace用于临时变量传递信号值</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-type">int</span>				exit_code;<br>	<span class="hljs-type">int</span>				exit_signal;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * 设置当前task状态</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-comment">/* JOBCTL_*, siglock protected: */</span><br>	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>			jobctl;<br><br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * 当前thread id</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-type">pid_t</span>				pid;<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * 当前process id</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-type">pid_t</span>				tgid;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Pointers to the (original) parent process, youngest child, younger sibling,</span><br><span class="hljs-comment">	 * older sibling, respectively.  (p-&gt;father can be replaced with</span><br><span class="hljs-comment">	 * p-&gt;real_parent-&gt;pid)</span><br><span class="hljs-comment">	 */</span><br><br>	<span class="hljs-comment">/* Real parent process: */</span><br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> __<span class="hljs-title">rcu</span>	*<span class="hljs-title">real_parent</span>;</span><br><br>	<span class="hljs-comment">/* Recipient of SIGCHLD, wait4() reports: */</span><br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> __<span class="hljs-title">rcu</span>	*<span class="hljs-title">parent</span>;</span><br><br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span>		*<span class="hljs-title">group_leader</span>;</span><br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * &#x27;ptraced&#x27; is the list of tasks this task is using ptrace() on.</span><br><span class="hljs-comment">	 *</span><br><span class="hljs-comment">	 * This includes both natural children and PTRACE_ATTACH targets.</span><br><span class="hljs-comment">	 * &#x27;ptrace_entry&#x27; is this task&#x27;s link on the p-&gt;parent-&gt;ptraced list.</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">list_head</span>		<span class="hljs-title">ptraced</span>;</span><br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">list_head</span>		<span class="hljs-title">ptrace_entry</span>;</span><br><br><br>	<span class="hljs-comment">/* Process credentials: */</span><br><br>	<span class="hljs-comment">/* Tracer&#x27;s credentials at attach: */</span><br>	<span class="hljs-type">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">cred</span> __<span class="hljs-title">rcu</span>		*<span class="hljs-title">ptracer_cred</span>;</span><br><br>	<span class="hljs-comment">/* Objective and real subjective task credentials (COW): */</span><br>	<span class="hljs-type">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">cred</span> __<span class="hljs-title">rcu</span>		*<span class="hljs-title">real_cred</span>;</span><br><br>	<span class="hljs-comment">/* Effective (overridable) subjective task credentials (COW): */</span><br>	<span class="hljs-type">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">cred</span> __<span class="hljs-title">rcu</span>		*<span class="hljs-title">cred</span>;</span><br><br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * New fields for task_struct should be added above here, so that</span><br><span class="hljs-comment">	 * they are included in the randomized portion of task_struct.</span><br><span class="hljs-comment">	 */</span><br>	randomized_struct_fields_end<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>ptrace_attach在使用SEIZE模式下不会停止附加进程，设置task的ptrace字段标记当前被ptraced。设置task状态并唤醒等待状态转换。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">ptrace_attach</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *task, <span class="hljs-type">long</span> request,</span><br><span class="hljs-params">			 <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> addr,</span><br><span class="hljs-params">			 <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> flags)</span><br>&#123;<br>	<span class="hljs-type">bool</span> seize = (request == PTRACE_SEIZE);<br>	<span class="hljs-type">int</span> retval;<br><br>	retval = -EIO;<br>	<span class="hljs-keyword">if</span> (seize) &#123;<br>		<span class="hljs-keyword">if</span> (addr != <span class="hljs-number">0</span>)<br>			<span class="hljs-keyword">goto</span> out;<br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * This duplicates the check in check_ptrace_options() because</span><br><span class="hljs-comment">		 * ptrace_attach() and ptrace_setoptions() have historically</span><br><span class="hljs-comment">		 * used different error codes for unknown ptrace options.</span><br><span class="hljs-comment">		 */</span><br>		<span class="hljs-keyword">if</span> (flags &amp; ~(<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>)PTRACE_O_MASK)<br>			<span class="hljs-keyword">goto</span> out;<br>		retval = check_ptrace_options(flags);<br>		<span class="hljs-keyword">if</span> (retval)<br>			<span class="hljs-keyword">return</span> retval;<br>		flags = PT_PTRACED | PT_SEIZED | (flags &lt;&lt; PT_OPT_FLAG_SHIFT);<br>	&#125; <span class="hljs-keyword">else</span> &#123;<br>		flags = PT_PTRACED;<br>	&#125;<br><br>	audit_ptrace(task);<br><br>	retval = -EPERM;<br>	<span class="hljs-keyword">if</span> (unlikely(task-&gt;flags &amp; PF_KTHREAD))<br>		<span class="hljs-keyword">goto</span> out;<br>	<span class="hljs-keyword">if</span> (same_thread_group(task, current))<br>		<span class="hljs-keyword">goto</span> out;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Protect exec&#x27;s credential calculations against our interference;</span><br><span class="hljs-comment">	 * SUID, SGID and LSM creds get determined differently</span><br><span class="hljs-comment">	 * under ptrace.</span><br><span class="hljs-comment">	 */</span><br>	retval = -ERESTARTNOINTR;<br>	<span class="hljs-keyword">if</span> (mutex_lock_interruptible(&amp;task-&gt;signal-&gt;cred_guard_mutex))<br>		<span class="hljs-keyword">goto</span> out;<br><br>	task_lock(task);<br>	retval = __ptrace_may_access(task, PTRACE_MODE_ATTACH_REALCREDS);<br>	task_unlock(task);<br>	<span class="hljs-keyword">if</span> (retval)<br>		<span class="hljs-keyword">goto</span> unlock_creds;<br><br>	write_lock_irq(&amp;tasklist_lock);<br>	retval = -EPERM;<br>	<span class="hljs-keyword">if</span> (unlikely(task-&gt;exit_state))<br>		<span class="hljs-keyword">goto</span> unlock_tasklist;<br>	<span class="hljs-keyword">if</span> (task-&gt;ptrace)<br>		<span class="hljs-keyword">goto</span> unlock_tasklist;<br><br>	<span class="hljs-keyword">if</span> (seize)<br>		flags |= PT_SEIZED;<br>	task-&gt;ptrace = flags;<br><br>	ptrace_link(task, current);<br><br>	<span class="hljs-comment">/* SEIZE doesn&#x27;t trap tracee on attach */</span><br>	<span class="hljs-keyword">if</span> (!seize)<br>		send_sig_info(SIGSTOP, SEND_SIG_PRIV, task);<br><br>	spin_lock(&amp;task-&gt;sighand-&gt;siglock);<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * If the task is already STOPPED, set JOBCTL_TRAP_STOP and</span><br><span class="hljs-comment">	 * TRAPPING, and kick it so that it transits to TRACED.  TRAPPING</span><br><span class="hljs-comment">	 * will be cleared if the child completes the transition or any</span><br><span class="hljs-comment">	 * event which clears the group stop states happens.  We&#x27;ll wait</span><br><span class="hljs-comment">	 * for the transition to complete before returning from this</span><br><span class="hljs-comment">	 * function.</span><br><span class="hljs-comment">	 *</span><br><span class="hljs-comment">	 * This hides STOPPED -&gt; RUNNING -&gt; TRACED transition from the</span><br><span class="hljs-comment">	 * attaching thread but a different thread in the same group can</span><br><span class="hljs-comment">	 * still observe the transient RUNNING state.  IOW, if another</span><br><span class="hljs-comment">	 * thread&#x27;s WNOHANG wait(2) on the stopped tracee races against</span><br><span class="hljs-comment">	 * ATTACH, the wait(2) may fail due to the transient RUNNING.</span><br><span class="hljs-comment">	 *</span><br><span class="hljs-comment">	 * The following task_is_stopped() test is safe as both transitions</span><br><span class="hljs-comment">	 * in and out of STOPPED are protected by siglock.</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-keyword">if</span> (task_is_stopped(task) &amp;&amp;<br>	    task_set_jobctl_pending(task, JOBCTL_TRAP_STOP | JOBCTL_TRAPPING))<br>		signal_wake_up_state(task, __TASK_STOPPED);<br><br>	spin_unlock(&amp;task-&gt;sighand-&gt;siglock);<br><br>	retval = <span class="hljs-number">0</span>;<br>unlock_tasklist:<br>	write_unlock_irq(&amp;tasklist_lock);<br>unlock_creds:<br>	mutex_unlock(&amp;task-&gt;signal-&gt;cred_guard_mutex);<br>out:<br>	<span class="hljs-keyword">if</span> (!retval) &#123;<br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * We do not bother to change retval or clear JOBCTL_TRAPPING</span><br><span class="hljs-comment">		 * if wait_on_bit() was interrupted by SIGKILL. The tracer will</span><br><span class="hljs-comment">		 * not return to user-mode, it will exit and clear this bit in</span><br><span class="hljs-comment">		 * __ptrace_unlink() if it wasn&#x27;t already cleared by the tracee;</span><br><span class="hljs-comment">		 * and until then nobody can ptrace this task.</span><br><span class="hljs-comment">		 */</span><br>		wait_on_bit(&amp;task-&gt;jobctl, JOBCTL_TRAPPING_BIT, TASK_KILLABLE);<br>		proc_ptrace_connector(task, PTRACE_ATTACH);<br>	&#125;<br><br>	<span class="hljs-keyword">return</span> retval;<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>ptrace_link将tracee的parent替换为ptracer，后续的通知parent都转到ptracer上。将tracee加入ptraced链表中。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">void</span> __ptrace_link(<span class="hljs-keyword">struct</span> task_struct *child, <span class="hljs-keyword">struct</span> task_struct *new_parent,<br>		   <span class="hljs-type">const</span> <span class="hljs-keyword">struct</span> cred *ptracer_cred)<br>&#123;<br>	BUG_ON(!list_empty(&amp;child-&gt;ptrace_entry));<br>	list_add(&amp;child-&gt;ptrace_entry, &amp;new_parent-&gt;ptraced);<br>	child-&gt;parent = new_parent;<br>	child-&gt;ptracer_cred = get_cred(ptracer_cred);<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<h2 id="信号劫持"><a href="#信号劫持" class="headerlink" title="信号劫持"></a>信号劫持</h2><p>接下来tracee来到signal.c的信号处理，这个时候已经收到ptrace附加后的SIGSTOP信号等待处理。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">bool</span> <span class="hljs-title function_">get_signal</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> ksignal *ksig)</span><br></code></pre></td></tr></table></figure>
+
+<p>进入ptrace_signal等待信号处理。唤醒后的exit_code作为替换信号值，为0表示抑制该信号不传递给task对应的信号handler。同时也可以更改信号值。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">ptrace_signal</span><span class="hljs-params">(<span class="hljs-type">int</span> signr, <span class="hljs-type">kernel_siginfo_t</span> *info)</span><br>&#123;<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * We do not check sig_kernel_stop(signr) but set this marker</span><br><span class="hljs-comment">	 * unconditionally because we do not know whether debugger will</span><br><span class="hljs-comment">	 * change signr. This flag has no meaning unless we are going</span><br><span class="hljs-comment">	 * to stop after return from ptrace_stop(). In this case it will</span><br><span class="hljs-comment">	 * be checked in do_signal_stop(), we should only stop if it was</span><br><span class="hljs-comment">	 * not cleared by SIGCONT while we were sleeping. See also the</span><br><span class="hljs-comment">	 * comment in dequeue_signal().</span><br><span class="hljs-comment">	 */</span><br>	current-&gt;jobctl |= JOBCTL_STOP_DEQUEUED;<br>	ptrace_stop(signr, CLD_TRAPPED, <span class="hljs-number">0</span>, info);<br><br>	<span class="hljs-comment">/* We&#x27;re back.  Did the debugger cancel the sig?  */</span><br>	signr = current-&gt;exit_code;<br>	<span class="hljs-keyword">if</span> (signr == <span class="hljs-number">0</span>)<br>		<span class="hljs-keyword">return</span> signr;<br><br>	current-&gt;exit_code = <span class="hljs-number">0</span>;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Update the siginfo structure if the signal has</span><br><span class="hljs-comment">	 * changed.  If the debugger wanted something</span><br><span class="hljs-comment">	 * specific in the siginfo structure then it should</span><br><span class="hljs-comment">	 * have updated *info via PTRACE_SETSIGINFO.</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-keyword">if</span> (signr != info-&gt;si_signo) &#123;<br>		clear_siginfo(info);<br>		info-&gt;si_signo = signr;<br>		info-&gt;si_errno = <span class="hljs-number">0</span>;<br>		info-&gt;si_code = SI_USER;<br>		rcu_read_lock();<br>		info-&gt;si_pid = task_pid_vnr(current-&gt;parent);<br>		info-&gt;si_uid = from_kuid_munged(current_user_ns(),<br>						task_uid(current-&gt;parent));<br>		rcu_read_unlock();<br>	&#125;<br><br>	<span class="hljs-comment">/* If the (new) signal is now blocked, requeue it.  */</span><br>	<span class="hljs-keyword">if</span> (sigismember(&amp;current-&gt;blocked, signr)) &#123;<br>		send_signal(signr, info, current, PIDTYPE_PID);<br>		signr = <span class="hljs-number">0</span>;<br>	&#125;<br><br>	<span class="hljs-keyword">return</span> signr;<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>进入ptrace_stop时会将中将task状态设置为TASK_TRACED，exit_code作为临时变量存储信号值，如果处于ptrace状态通知ptracer状态变化。并将自身调度出CPU等待唤醒。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">ptrace_stop</span><span class="hljs-params">(<span class="hljs-type">int</span> exit_code, <span class="hljs-type">int</span> why, <span class="hljs-type">int</span> clear_code, <span class="hljs-type">kernel_siginfo_t</span> *info)</span><br>	__<span class="hljs-title function_">releases</span><span class="hljs-params">(&amp;current-&gt;sighand-&gt;siglock)</span><br>	__<span class="hljs-title function_">acquires</span><span class="hljs-params">(&amp;current-&gt;sighand-&gt;siglock)</span><br>&#123;<br>	<span class="hljs-type">bool</span> gstop_done = <span class="hljs-literal">false</span>;<br><br>	<span class="hljs-keyword">if</span> (arch_ptrace_stop_needed(exit_code, info)) &#123;<br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * The arch code has something special to do before a</span><br><span class="hljs-comment">		 * ptrace stop.  This is allowed to block, e.g. for faults</span><br><span class="hljs-comment">		 * on user stack pages.  We can&#x27;t keep the siglock while</span><br><span class="hljs-comment">		 * calling arch_ptrace_stop, so we must release it now.</span><br><span class="hljs-comment">		 * To preserve proper semantics, we must do this before</span><br><span class="hljs-comment">		 * any signal bookkeeping like checking group_stop_count.</span><br><span class="hljs-comment">		 */</span><br>		spin_unlock_irq(&amp;current-&gt;sighand-&gt;siglock);<br>		arch_ptrace_stop(exit_code, info);<br>		spin_lock_irq(&amp;current-&gt;sighand-&gt;siglock);<br>	&#125;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * schedule() will not sleep if there is a pending signal that</span><br><span class="hljs-comment">	 * can awaken the task.</span><br><span class="hljs-comment">	 */</span><br>	set_special_state(TASK_TRACED);<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * We&#x27;re committing to trapping.  TRACED should be visible before</span><br><span class="hljs-comment">	 * TRAPPING is cleared; otherwise, the tracer might fail do_wait().</span><br><span class="hljs-comment">	 * Also, transition to TRACED and updates to -&gt;jobctl should be</span><br><span class="hljs-comment">	 * atomic with respect to siglock and should be done after the arch</span><br><span class="hljs-comment">	 * hook as siglock is released and regrabbed across it.</span><br><span class="hljs-comment">	 *</span><br><span class="hljs-comment">	 *     TRACER				    TRACEE</span><br><span class="hljs-comment">	 *</span><br><span class="hljs-comment">	 *     ptrace_attach()</span><br><span class="hljs-comment">	 * [L]   wait_on_bit(JOBCTL_TRAPPING)	[S] set_special_state(TRACED)</span><br><span class="hljs-comment">	 *     do_wait()</span><br><span class="hljs-comment">	 *       set_current_state()                smp_wmb();</span><br><span class="hljs-comment">	 *       ptrace_do_wait()</span><br><span class="hljs-comment">	 *         wait_task_stopped()</span><br><span class="hljs-comment">	 *           task_stopped_code()</span><br><span class="hljs-comment">	 * [L]         task_is_traced()		[S] task_clear_jobctl_trapping();</span><br><span class="hljs-comment">	 */</span><br>	smp_wmb();<br><br>	current-&gt;last_siginfo = info;<br>	current-&gt;exit_code = exit_code;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * If @why is CLD_STOPPED, we&#x27;re trapping to participate in a group</span><br><span class="hljs-comment">	 * stop.  Do the bookkeeping.  Note that if SIGCONT was delievered</span><br><span class="hljs-comment">	 * across siglock relocks since INTERRUPT was scheduled, PENDING</span><br><span class="hljs-comment">	 * could be clear now.  We act as if SIGCONT is received after</span><br><span class="hljs-comment">	 * TASK_TRACED is entered - ignore it.</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-keyword">if</span> (why == CLD_STOPPED &amp;&amp; (current-&gt;jobctl &amp; JOBCTL_STOP_PENDING))<br>		gstop_done = task_participate_group_stop(current);<br><br>	<span class="hljs-comment">/* any trap clears pending STOP trap, STOP trap clears NOTIFY */</span><br>	task_clear_jobctl_pending(current, JOBCTL_TRAP_STOP);<br>	<span class="hljs-keyword">if</span> (info &amp;&amp; info-&gt;si_code &gt;&gt; <span class="hljs-number">8</span> == PTRACE_EVENT_STOP)<br>		task_clear_jobctl_pending(current, JOBCTL_TRAP_NOTIFY);<br><br>	<span class="hljs-comment">/* entering a trap, clear TRAPPING */</span><br>	task_clear_jobctl_trapping(current);<br><br>	spin_unlock_irq(&amp;current-&gt;sighand-&gt;siglock);<br>	read_lock(&amp;tasklist_lock);<br>	<span class="hljs-keyword">if</span> (may_ptrace_stop()) &#123;<br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * Notify parents of the stop.</span><br><span class="hljs-comment">		 *</span><br><span class="hljs-comment">		 * While ptraced, there are two parents - the ptracer and</span><br><span class="hljs-comment">		 * the real_parent of the group_leader.  The ptracer should</span><br><span class="hljs-comment">		 * know about every stop while the real parent is only</span><br><span class="hljs-comment">		 * interested in the completion of group stop.  The states</span><br><span class="hljs-comment">		 * for the two don&#x27;t interact with each other.  Notify</span><br><span class="hljs-comment">		 * separately unless they&#x27;re gonna be duplicates.</span><br><span class="hljs-comment">		 */</span><br>		do_notify_parent_cldstop(current, <span class="hljs-literal">true</span>, why);<br>		<span class="hljs-keyword">if</span> (gstop_done &amp;&amp; ptrace_reparented(current))<br>			do_notify_parent_cldstop(current, <span class="hljs-literal">false</span>, why);<br><br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * Don&#x27;t want to allow preemption here, because</span><br><span class="hljs-comment">		 * sys_ptrace() needs this task to be inactive.</span><br><span class="hljs-comment">		 *</span><br><span class="hljs-comment">		 * <span class="hljs-doctag">XXX:</span> implement read_unlock_no_resched().</span><br><span class="hljs-comment">		 */</span><br>		preempt_disable();<br>		read_unlock(&amp;tasklist_lock);<br>		cgroup_enter_frozen();<br>		preempt_enable_no_resched();<br>		freezable_schedule();<br>		cgroup_leave_frozen(<span class="hljs-literal">true</span>);<br>	&#125; <span class="hljs-keyword">else</span> &#123;<br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * By the time we got the lock, our tracer went away.</span><br><span class="hljs-comment">		 * Don&#x27;t drop the lock yet, another tracer may come.</span><br><span class="hljs-comment">		 *</span><br><span class="hljs-comment">		 * If @gstop_done, the ptracer went away between group stop</span><br><span class="hljs-comment">		 * completion and here.  During detach, it would have set</span><br><span class="hljs-comment">		 * JOBCTL_STOP_PENDING on us and we&#x27;ll re-enter</span><br><span class="hljs-comment">		 * TASK_STOPPED in do_signal_stop() on return, so notifying</span><br><span class="hljs-comment">		 * the real parent of the group stop completion is enough.</span><br><span class="hljs-comment">		 */</span><br>		<span class="hljs-keyword">if</span> (gstop_done)<br>			do_notify_parent_cldstop(current, <span class="hljs-literal">false</span>, why);<br><br>		<span class="hljs-comment">/* tasklist protects us from ptrace_freeze_traced() */</span><br>		__set_current_state(TASK_RUNNING);<br>		<span class="hljs-keyword">if</span> (clear_code)<br>			current-&gt;exit_code = <span class="hljs-number">0</span>;<br>		read_unlock(&amp;tasklist_lock);<br>	&#125;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * We are back.  Now reacquire the siglock before touching</span><br><span class="hljs-comment">	 * last_siginfo, so that we are sure to have synchronized with</span><br><span class="hljs-comment">	 * any signal-sending on another CPU that wants to examine it.</span><br><span class="hljs-comment">	 */</span><br>	spin_lock_irq(&amp;current-&gt;sighand-&gt;siglock);<br>	current-&gt;last_siginfo = <span class="hljs-literal">NULL</span>;<br><br>	<span class="hljs-comment">/* LISTENING can be set only during STOP traps, clear it */</span><br>	current-&gt;jobctl &amp;= ~JOBCTL_LISTENING;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Queued signals ignored us while we were stopped for tracing.</span><br><span class="hljs-comment">	 * So check for any that we should take before resuming user mode.</span><br><span class="hljs-comment">	 * This sets TIF_SIGPENDING, but never clears it.</span><br><span class="hljs-comment">	 */</span><br>	recalc_sigpending_tsk(current);<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>使用SIGCHLD信号通知ptracer变动。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-comment">/**</span><br><span class="hljs-comment"> * do_notify_parent_cldstop - notify parent of stopped/continued state change</span><br><span class="hljs-comment"> * @tsk: task reporting the state change</span><br><span class="hljs-comment"> * @for_ptracer: the notification is for ptracer</span><br><span class="hljs-comment"> * @why: CLD_&#123;CONTINUED|STOPPED|TRAPPED&#125; to report</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * Notify @tsk&#x27;s parent that the stopped/continued state has changed.  If</span><br><span class="hljs-comment"> * @for_ptracer is %false, @tsk&#x27;s group leader notifies to its real parent.</span><br><span class="hljs-comment"> * If %true, @tsk reports to @tsk-&gt;parent which should be the ptracer.</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * CONTEXT:</span><br><span class="hljs-comment"> * Must be called with tasklist_lock at least read locked.</span><br><span class="hljs-comment"> */</span><br><span class="hljs-type">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">do_notify_parent_cldstop</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *tsk,</span><br><span class="hljs-params">				     <span class="hljs-type">bool</span> for_ptracer, <span class="hljs-type">int</span> why)</span><br>&#123;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kernel_siginfo</span> <span class="hljs-title">info</span>;</span><br>	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> flags;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">parent</span>;</span><br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sighand_struct</span> *<span class="hljs-title">sighand</span>;</span><br>	u64 utime, stime;<br><br>	<span class="hljs-keyword">if</span> (for_ptracer) &#123;<br>		parent = tsk-&gt;parent;<br>	&#125; <span class="hljs-keyword">else</span> &#123;<br>		tsk = tsk-&gt;group_leader;<br>		parent = tsk-&gt;real_parent;<br>	&#125;<br><br>	clear_siginfo(&amp;info);<br>	info.si_signo = SIGCHLD;<br>	info.si_errno = <span class="hljs-number">0</span>;<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * see comment in do_notify_parent() about the following 4 lines</span><br><span class="hljs-comment">	 */</span><br>	rcu_read_lock();<br>	info.si_pid = task_pid_nr_ns(tsk, task_active_pid_ns(parent));<br>	info.si_uid = from_kuid_munged(task_cred_xxx(parent, user_ns), task_uid(tsk));<br>	rcu_read_unlock();<br><br>	task_cputime(tsk, &amp;utime, &amp;stime);<br>	info.si_utime = <span class="hljs-type">nsec_to_clock_t</span>(utime);<br>	info.si_stime = <span class="hljs-type">nsec_to_clock_t</span>(stime);<br><br> 	info.si_code = why;<br> 	<span class="hljs-keyword">switch</span> (why) &#123;<br> 	<span class="hljs-keyword">case</span> CLD_CONTINUED:<br> 		info.si_status = SIGCONT;<br> 		<span class="hljs-keyword">break</span>;<br> 	<span class="hljs-keyword">case</span> CLD_STOPPED:<br> 		info.si_status = tsk-&gt;signal-&gt;group_exit_code &amp; <span class="hljs-number">0x7f</span>;<br> 		<span class="hljs-keyword">break</span>;<br> 	<span class="hljs-keyword">case</span> CLD_TRAPPED:<br> 		info.si_status = tsk-&gt;exit_code &amp; <span class="hljs-number">0x7f</span>;<br> 		<span class="hljs-keyword">break</span>;<br> 	<span class="hljs-keyword">default</span>:<br> 		BUG();<br> 	&#125;<br><br>	sighand = parent-&gt;sighand;<br>	spin_lock_irqsave(&amp;sighand-&gt;siglock, flags);<br>	<span class="hljs-keyword">if</span> (sighand-&gt;action[SIGCHLD<span class="hljs-number">-1</span>].sa.sa_handler != SIG_IGN &amp;&amp;<br>	    !(sighand-&gt;action[SIGCHLD<span class="hljs-number">-1</span>].sa.sa_flags &amp; SA_NOCLDSTOP))<br>		__group_send_sig_info(SIGCHLD, &amp;info, parent);<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Even if SIGCHLD is not generated, we must wake up wait4 calls.</span><br><span class="hljs-comment">	 */</span><br>	__wake_up_parent(tsk, parent);<br>	spin_unlock_irqrestore(&amp;sighand-&gt;siglock, flags);<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>ptracer在收到SIGCHLD后使用waitpid或其它wait变体，获取停止事件。waitpid最终进入exit.c的do_wait函数中。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">long</span> <span class="hljs-title function_">do_wait</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> wait_opts *wo)</span><br>&#123;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">tsk</span>;</span><br>	<span class="hljs-type">int</span> retval;<br><br>	trace_sched_process_wait(wo-&gt;wo_pid);<br><br>	init_waitqueue_func_entry(&amp;wo-&gt;child_wait, child_wait_callback);<br>	wo-&gt;child_wait.private = current;<br>	add_wait_queue(&amp;current-&gt;signal-&gt;wait_chldexit, &amp;wo-&gt;child_wait);<br>repeat:<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * If there is nothing that can match our criteria, just get out.</span><br><span class="hljs-comment">	 * We will clear -&gt;notask_error to zero if we see any child that</span><br><span class="hljs-comment">	 * might later match our criteria, even if we are not able to reap</span><br><span class="hljs-comment">	 * it yet.</span><br><span class="hljs-comment">	 */</span><br>	wo-&gt;notask_error = -ECHILD;<br>	<span class="hljs-keyword">if</span> ((wo-&gt;wo_type &lt; PIDTYPE_MAX) &amp;&amp;<br>	   (!wo-&gt;wo_pid || !pid_has_task(wo-&gt;wo_pid, wo-&gt;wo_type)))<br>		<span class="hljs-keyword">goto</span> notask;<br><br>	set_current_state(TASK_INTERRUPTIBLE);<br>	read_lock(&amp;tasklist_lock);<br>	tsk = current;<br>	<span class="hljs-keyword">do</span> &#123;<br>		retval = do_wait_thread(wo, tsk);<br>		<span class="hljs-keyword">if</span> (retval)<br>			<span class="hljs-keyword">goto</span> end;<br><br>		retval = ptrace_do_wait(wo, tsk);<br>		<span class="hljs-keyword">if</span> (retval)<br>			<span class="hljs-keyword">goto</span> end;<br><br>		<span class="hljs-keyword">if</span> (wo-&gt;wo_flags &amp; __WNOTHREAD)<br>			<span class="hljs-keyword">break</span>;<br>	&#125; while_each_thread(current, tsk);<br>	read_unlock(&amp;tasklist_lock);<br><br>notask:<br>	retval = wo-&gt;notask_error;<br>	<span class="hljs-keyword">if</span> (!retval &amp;&amp; !(wo-&gt;wo_flags &amp; WNOHANG)) &#123;<br>		retval = -ERESTARTSYS;<br>		<span class="hljs-keyword">if</span> (!signal_pending(current)) &#123;<br>			schedule();<br>			<span class="hljs-keyword">goto</span> repeat;<br>		&#125;<br>	&#125;<br>end:<br>	__set_current_state(TASK_RUNNING);<br>	remove_wait_queue(&amp;current-&gt;signal-&gt;wait_chldexit, &amp;wo-&gt;child_wait);<br>	<span class="hljs-keyword">return</span> retval;<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>do_wait中的重点在遍历当前ptraced的task</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">ptrace_do_wait</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> wait_opts *wo, <span class="hljs-keyword">struct</span> task_struct *tsk)</span><br>&#123;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">p</span>;</span><br><br>	list_for_each_entry(p, &amp;tsk-&gt;ptraced, ptrace_entry) &#123;<br>		<span class="hljs-type">int</span> ret = wait_consider_task(wo, <span class="hljs-number">1</span>, p);<br><br>		<span class="hljs-keyword">if</span> (ret)<br>			<span class="hljs-keyword">return</span> ret;<br>	&#125;<br><br>	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>进入wait_consider_task，task当前exit_state不为EXIT_DEAD或EXIT_ZOMBIE。EXIT_DEAD和EXIT_ZOMBIE是退出时详细讲解的。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-comment">/*</span><br><span class="hljs-comment"> * Consider @p for a wait by @parent.</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * -ECHILD should be in -&gt;notask_error before the first call.</span><br><span class="hljs-comment"> * Returns nonzero for a final return, when we have unlocked tasklist_lock.</span><br><span class="hljs-comment"> * Returns zero if the search for a child should continue;</span><br><span class="hljs-comment"> * then -&gt;notask_error is 0 if @p is an eligible child,</span><br><span class="hljs-comment"> * or still -ECHILD.</span><br><span class="hljs-comment"> */</span><br><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">wait_consider_task</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> wait_opts *wo, <span class="hljs-type">int</span> ptrace,</span><br><span class="hljs-params">				<span class="hljs-keyword">struct</span> task_struct *p)</span><br>&#123;<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * We can race with wait_task_zombie() from another thread.</span><br><span class="hljs-comment">	 * Ensure that EXIT_ZOMBIE -&gt; EXIT_DEAD/EXIT_TRACE transition</span><br><span class="hljs-comment">	 * can&#x27;t confuse the checks below.</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-type">int</span> exit_state = READ_ONCE(p-&gt;exit_state);<br>	<span class="hljs-type">int</span> ret;<br><br>	<span class="hljs-keyword">if</span> (unlikely(exit_state == EXIT_DEAD))<br>		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;<br><br>	ret = eligible_child(wo, ptrace, p);<br>	<span class="hljs-keyword">if</span> (!ret)<br>		<span class="hljs-keyword">return</span> ret;<br><br>	<span class="hljs-keyword">if</span> (unlikely(exit_state == EXIT_TRACE)) &#123;<br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * ptrace == 0 means we are the natural parent. In this case</span><br><span class="hljs-comment">		 * we should clear notask_error, debugger will notify us.</span><br><span class="hljs-comment">		 */</span><br>		<span class="hljs-keyword">if</span> (likely(!ptrace))<br>			wo-&gt;notask_error = <span class="hljs-number">0</span>;<br>		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;<br>	&#125;<br><br>	<span class="hljs-keyword">if</span> (likely(!ptrace) &amp;&amp; unlikely(p-&gt;ptrace)) &#123;<br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * If it is traced by its real parent&#x27;s group, just pretend</span><br><span class="hljs-comment">		 * the caller is ptrace_do_wait() and reap this child if it</span><br><span class="hljs-comment">		 * is zombie.</span><br><span class="hljs-comment">		 *</span><br><span class="hljs-comment">		 * This also hides group stop state from real parent; otherwise</span><br><span class="hljs-comment">		 * a single stop can be reported twice as group and ptrace stop.</span><br><span class="hljs-comment">		 * If a ptracer wants to distinguish these two events for its</span><br><span class="hljs-comment">		 * own children it should create a separate process which takes</span><br><span class="hljs-comment">		 * the role of real parent.</span><br><span class="hljs-comment">		 */</span><br>		<span class="hljs-keyword">if</span> (!ptrace_reparented(p))<br>			ptrace = <span class="hljs-number">1</span>;<br>	&#125;<br><br>	<span class="hljs-comment">/* slay zombie? */</span><br>	<span class="hljs-keyword">if</span> (exit_state == EXIT_ZOMBIE) &#123;<br>		<span class="hljs-comment">/* we don&#x27;t reap group leaders with subthreads */</span><br>		<span class="hljs-keyword">if</span> (!delay_group_leader(p)) &#123;<br>			<span class="hljs-comment">/*</span><br><span class="hljs-comment">			 * A zombie ptracee is only visible to its ptracer.</span><br><span class="hljs-comment">			 * Notification and reaping will be cascaded to the</span><br><span class="hljs-comment">			 * real parent when the ptracer detaches.</span><br><span class="hljs-comment">			 */</span><br>			<span class="hljs-keyword">if</span> (unlikely(ptrace) || likely(!p-&gt;ptrace))<br>				<span class="hljs-keyword">return</span> wait_task_zombie(wo, p);<br>		&#125;<br><br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * Allow access to stopped/continued state via zombie by</span><br><span class="hljs-comment">		 * falling through.  Clearing of notask_error is complex.</span><br><span class="hljs-comment">		 *</span><br><span class="hljs-comment">		 * When !@ptrace:</span><br><span class="hljs-comment">		 *</span><br><span class="hljs-comment">		 * If WEXITED is set, notask_error should naturally be</span><br><span class="hljs-comment">		 * cleared.  If not, subset of WSTOPPED|WCONTINUED is set,</span><br><span class="hljs-comment">		 * so, if there are live subthreads, there are events to</span><br><span class="hljs-comment">		 * wait for.  If all subthreads are dead, it&#x27;s still safe</span><br><span class="hljs-comment">		 * to clear - this function will be called again in finite</span><br><span class="hljs-comment">		 * amount time once all the subthreads are released and</span><br><span class="hljs-comment">		 * will then return without clearing.</span><br><span class="hljs-comment">		 *</span><br><span class="hljs-comment">		 * When @ptrace:</span><br><span class="hljs-comment">		 *</span><br><span class="hljs-comment">		 * Stopped state is per-task and thus can&#x27;t change once the</span><br><span class="hljs-comment">		 * target task dies.  Only continued and exited can happen.</span><br><span class="hljs-comment">		 * Clear notask_error if WCONTINUED | WEXITED.</span><br><span class="hljs-comment">		 */</span><br>		<span class="hljs-keyword">if</span> (likely(!ptrace) || (wo-&gt;wo_flags &amp; (WCONTINUED | WEXITED)))<br>			wo-&gt;notask_error = <span class="hljs-number">0</span>;<br>	&#125; <span class="hljs-keyword">else</span> &#123;<br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * @p is alive and it&#x27;s gonna stop, continue or exit, so</span><br><span class="hljs-comment">		 * there always is something to wait for.</span><br><span class="hljs-comment">		 */</span><br>		wo-&gt;notask_error = <span class="hljs-number">0</span>;<br>	&#125;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Wait for stopped.  Depending on @ptrace, different stopped state</span><br><span class="hljs-comment">	 * is used and the two don&#x27;t interact with each other.</span><br><span class="hljs-comment">	 */</span><br>	ret = wait_task_stopped(wo, ptrace, p);<br>	<span class="hljs-keyword">if</span> (ret)<br>		<span class="hljs-keyword">return</span> ret;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Wait for continued.  There&#x27;s only one continued state and the</span><br><span class="hljs-comment">	 * ptracer can consume it which can confuse the real parent.  Don&#x27;t</span><br><span class="hljs-comment">	 * use WCONTINUED from ptracer.  You don&#x27;t need or want it.</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-keyword">return</span> wait_task_continued(wo, p);<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>在wait_task_stopped中获取exit_code编码(exit_code &lt;&lt; 8) | 0x7f后返回给用户态上。这里对应WIFSTOPPED检查处理，告诉waiter当前task已经stopped</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">int</span> *<span class="hljs-title function_">task_stopped_code</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *p, <span class="hljs-type">bool</span> ptrace)</span><br>&#123;<br>	<span class="hljs-keyword">if</span> (ptrace) &#123;<br>		<span class="hljs-keyword">if</span> (task_is_traced(p) &amp;&amp; !(p-&gt;jobctl &amp; JOBCTL_LISTENING))<br>			<span class="hljs-keyword">return</span> &amp;p-&gt;exit_code;<br>	&#125; <span class="hljs-keyword">else</span> &#123;<br>		<span class="hljs-keyword">if</span> (p-&gt;signal-&gt;flags &amp; SIGNAL_STOP_STOPPED)<br>			<span class="hljs-keyword">return</span> &amp;p-&gt;signal-&gt;group_exit_code;<br>	&#125;<br>	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;<br>&#125;<br><br><span class="hljs-comment">/**</span><br><span class="hljs-comment"> * wait_task_stopped - Wait for %TASK_STOPPED or %TASK_TRACED</span><br><span class="hljs-comment"> * @wo: wait options</span><br><span class="hljs-comment"> * @ptrace: is the wait for ptrace</span><br><span class="hljs-comment"> * @p: task to wait for</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * Handle sys_wait4() work for %p in state %TASK_STOPPED or %TASK_TRACED.</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * CONTEXT:</span><br><span class="hljs-comment"> * read_lock(&amp;tasklist_lock), which is released if return value is</span><br><span class="hljs-comment"> * non-zero.  Also, grabs and releases @p-&gt;sighand-&gt;siglock.</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * RETURNS:</span><br><span class="hljs-comment"> * 0 if wait condition didn&#x27;t exist and search for other wait conditions</span><br><span class="hljs-comment"> * should continue.  Non-zero return, -errno on failure and @p&#x27;s pid on</span><br><span class="hljs-comment"> * success, implies that tasklist_lock is released and wait condition</span><br><span class="hljs-comment"> * search should terminate.</span><br><span class="hljs-comment"> */</span><br><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">wait_task_stopped</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> wait_opts *wo,</span><br><span class="hljs-params">				<span class="hljs-type">int</span> ptrace, <span class="hljs-keyword">struct</span> task_struct *p)</span><br>&#123;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">waitid_info</span> *<span class="hljs-title">infop</span>;</span><br>	<span class="hljs-type">int</span> exit_code, *p_code, why;<br>	<span class="hljs-type">uid_t</span> uid = <span class="hljs-number">0</span>; <span class="hljs-comment">/* unneeded, required by compiler */</span><br>	<span class="hljs-type">pid_t</span> pid;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Traditionally we see ptrace&#x27;d stopped tasks regardless of options.</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-keyword">if</span> (!ptrace &amp;&amp; !(wo-&gt;wo_flags &amp; WUNTRACED))<br>		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;<br><br>	<span class="hljs-keyword">if</span> (!task_stopped_code(p, ptrace))<br>		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;<br><br>	exit_code = <span class="hljs-number">0</span>;<br>	spin_lock_irq(&amp;p-&gt;sighand-&gt;siglock);<br><br>	p_code = task_stopped_code(p, ptrace);<br>	<span class="hljs-keyword">if</span> (unlikely(!p_code))<br>		<span class="hljs-keyword">goto</span> unlock_sig;<br><br>	exit_code = *p_code;<br>	<span class="hljs-keyword">if</span> (!exit_code)<br>		<span class="hljs-keyword">goto</span> unlock_sig;<br><br>	<span class="hljs-keyword">if</span> (!unlikely(wo-&gt;wo_flags &amp; WNOWAIT))<br>		*p_code = <span class="hljs-number">0</span>;<br><br>	uid = from_kuid_munged(current_user_ns(), task_uid(p));<br>unlock_sig:<br>	spin_unlock_irq(&amp;p-&gt;sighand-&gt;siglock);<br>	<span class="hljs-keyword">if</span> (!exit_code)<br>		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Now we are pretty sure this task is interesting.</span><br><span class="hljs-comment">	 * Make sure it doesn&#x27;t get reaped out from under us while we</span><br><span class="hljs-comment">	 * give up the lock and then examine it below.  We don&#x27;t want to</span><br><span class="hljs-comment">	 * keep holding onto the tasklist_lock while we call getrusage and</span><br><span class="hljs-comment">	 * possibly take page faults for user memory.</span><br><span class="hljs-comment">	 */</span><br>	get_task_struct(p);<br>	pid = task_pid_vnr(p);<br>	why = ptrace ? CLD_TRAPPED : CLD_STOPPED;<br>	read_unlock(&amp;tasklist_lock);<br>	sched_annotate_sleep();<br>	<span class="hljs-keyword">if</span> (wo-&gt;wo_rusage)<br>		getrusage(p, RUSAGE_BOTH, wo-&gt;wo_rusage);<br>	put_task_struct(p);<br><br>	<span class="hljs-keyword">if</span> (likely(!(wo-&gt;wo_flags &amp; WNOWAIT)))<br>		wo-&gt;wo_stat = (exit_code &lt;&lt; <span class="hljs-number">8</span>) | <span class="hljs-number">0x7f</span>;<br><br>	infop = wo-&gt;wo_info;<br>	<span class="hljs-keyword">if</span> (infop) &#123;<br>		infop-&gt;cause = why;<br>		infop-&gt;status = exit_code;<br>		infop-&gt;pid = pid;<br>		infop-&gt;uid = uid;<br>	&#125;<br>	<span class="hljs-keyword">return</span> pid;<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>ptracer使用PTRACE_GETSIGINFO获取last_siginfo的信号数据。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">ptrace_getsiginfo</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *child, <span class="hljs-type">kernel_siginfo_t</span> *info)</span><br>&#123;<br>	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> flags;<br>	<span class="hljs-type">int</span> error = -ESRCH;<br><br>	<span class="hljs-keyword">if</span> (lock_task_sighand(child, &amp;flags)) &#123;<br>		error = -EINVAL;<br>		<span class="hljs-keyword">if</span> (likely(child-&gt;last_siginfo != <span class="hljs-literal">NULL</span>)) &#123;<br>			copy_siginfo(info, child-&gt;last_siginfo);<br>			error = <span class="hljs-number">0</span>;<br>		&#125;<br>		unlock_task_sighand(child, &amp;flags);<br>	&#125;<br>	<span class="hljs-keyword">return</span> error;<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>ptracer处理完成后可使用PTRACE_SINGLESTEP或PTRACE_CONT唤醒调试task恢复运行。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">ptrace_resume</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *child, <span class="hljs-type">long</span> request,</span><br><span class="hljs-params">			 <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> data)</span><br>&#123;<br>	<span class="hljs-type">bool</span> need_siglock;<br><br>	<span class="hljs-keyword">if</span> (!valid_signal(data))<br>		<span class="hljs-keyword">return</span> -EIO;<br><br>	<span class="hljs-keyword">if</span> (request == PTRACE_SYSCALL)<br>		set_tsk_thread_flag(child, TIF_SYSCALL_TRACE);<br>	<span class="hljs-keyword">else</span><br>		clear_tsk_thread_flag(child, TIF_SYSCALL_TRACE);<br><br><span class="hljs-meta">#<span class="hljs-keyword">ifdef</span> TIF_SYSCALL_EMU</span><br>	<span class="hljs-keyword">if</span> (request == PTRACE_SYSEMU || request == PTRACE_SYSEMU_SINGLESTEP)<br>		set_tsk_thread_flag(child, TIF_SYSCALL_EMU);<br>	<span class="hljs-keyword">else</span><br>		clear_tsk_thread_flag(child, TIF_SYSCALL_EMU);<br><span class="hljs-meta">#<span class="hljs-keyword">endif</span></span><br><br>	<span class="hljs-keyword">if</span> (is_singleblock(request)) &#123;<br>		<span class="hljs-keyword">if</span> (unlikely(!arch_has_block_step()))<br>			<span class="hljs-keyword">return</span> -EIO;<br>		user_enable_block_step(child);<br>	&#125; <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (is_singlestep(request) || is_sysemu_singlestep(request)) &#123;<br>		<span class="hljs-keyword">if</span> (unlikely(!arch_has_single_step()))<br>			<span class="hljs-keyword">return</span> -EIO;<br>		user_enable_single_step(child);<br>	&#125; <span class="hljs-keyword">else</span> &#123;<br>		user_disable_single_step(child);<br>	&#125;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Change -&gt;exit_code and -&gt;state under siglock to avoid the race</span><br><span class="hljs-comment">	 * with wait_task_stopped() in between; a non-zero -&gt;exit_code will</span><br><span class="hljs-comment">	 * wrongly look like another report from tracee.</span><br><span class="hljs-comment">	 *</span><br><span class="hljs-comment">	 * Note that we need siglock even if -&gt;exit_code == data and/or this</span><br><span class="hljs-comment">	 * status was not reported yet, the new status must not be cleared by</span><br><span class="hljs-comment">	 * wait_task_stopped() after resume.</span><br><span class="hljs-comment">	 *</span><br><span class="hljs-comment">	 * If data == 0 we do not care if wait_task_stopped() reports the old</span><br><span class="hljs-comment">	 * status and clears the code too; this can&#x27;t race with the tracee, it</span><br><span class="hljs-comment">	 * takes siglock after resume.</span><br><span class="hljs-comment">	 */</span><br>	need_siglock = data &amp;&amp; !thread_group_empty(current);<br>	<span class="hljs-keyword">if</span> (need_siglock)<br>		spin_lock_irq(&amp;child-&gt;sighand-&gt;siglock);<br>	child-&gt;exit_code = data;<br>	wake_up_state(child, __TASK_TRACED);<br>	<span class="hljs-keyword">if</span> (need_siglock)<br>		spin_unlock_irq(&amp;child-&gt;sighand-&gt;siglock);<br><br>	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<h2 id="退出"><a href="#退出" class="headerlink" title="退出"></a>退出</h2><p>这里退出需要区分两种情况：</p>
+<ol>
+<li>ptracer主动使用detach分离调试</li>
+<li>ptracer或tracee的task结束运行退出</li>
+</ol>
+<p>首先分析第一种情况：ptracer主动调用detach分离，ptracer和tracee都没有出现task退出。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">ptrace_detach</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *child, <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> data)</span><br>&#123;<br>	<span class="hljs-keyword">if</span> (!valid_signal(data))<br>		<span class="hljs-keyword">return</span> -EIO;<br><br>	<span class="hljs-comment">/* Architecture-specific hardware disable .. */</span><br>	ptrace_disable(child);<br><br>	write_lock_irq(&amp;tasklist_lock);<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * We rely on ptrace_freeze_traced(). It can&#x27;t be killed and</span><br><span class="hljs-comment">	 * untraced by another thread, it can&#x27;t be a zombie.</span><br><span class="hljs-comment">	 */</span><br>	WARN_ON(!child-&gt;ptrace || child-&gt;exit_state);<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * tasklist_lock avoids the race with wait_task_stopped(), see</span><br><span class="hljs-comment">	 * the comment in ptrace_resume().</span><br><span class="hljs-comment">	 */</span><br>	child-&gt;exit_code = data;<br>	__ptrace_detach(current, child);<br>	write_unlock_irq(&amp;tasklist_lock);<br><br>	proc_ptrace_connector(child, PTRACE_DETACH);<br><br>	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>恢复原parent关系，唤醒stopped状态。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-comment">/*</span><br><span class="hljs-comment"> * Called with tasklist_lock held for writing.</span><br><span class="hljs-comment"> * Unlink a traced task, and clean it up if it was a traced zombie.</span><br><span class="hljs-comment"> * Return true if it needs to be reaped with release_task().</span><br><span class="hljs-comment"> * (We can&#x27;t call release_task() here because we already hold tasklist_lock.)</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * If it&#x27;s a zombie, our attachedness prevented normal parent notification</span><br><span class="hljs-comment"> * or self-reaping.  Do notification now if it would have happened earlier.</span><br><span class="hljs-comment"> * If it should reap itself, return true.</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * If it&#x27;s our own child, there is no notification to do. But if our normal</span><br><span class="hljs-comment"> * children self-reap, then this child was prevented by ptrace and we must</span><br><span class="hljs-comment"> * reap it now, in that case we must also wake up sub-threads sleeping in</span><br><span class="hljs-comment"> * do_wait().</span><br><span class="hljs-comment"> */</span><br><span class="hljs-type">static</span> <span class="hljs-type">bool</span> __ptrace_detach(<span class="hljs-keyword">struct</span> task_struct *tracer, <span class="hljs-keyword">struct</span> task_struct *p)<br>&#123;<br>	<span class="hljs-type">bool</span> dead;<br><br>	__ptrace_unlink(p);<br><br>	<span class="hljs-keyword">if</span> (p-&gt;exit_state != EXIT_ZOMBIE)<br>		<span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>;<br><br>	dead = !thread_group_leader(p);<br><br>	<span class="hljs-keyword">if</span> (!dead &amp;&amp; thread_group_empty(p)) &#123;<br>		<span class="hljs-keyword">if</span> (!same_thread_group(p-&gt;real_parent, tracer))<br>			dead = do_notify_parent(p, p-&gt;exit_signal);<br>		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ignoring_children(tracer-&gt;sighand)) &#123;<br>			__wake_up_parent(p, tracer);<br>			dead = <span class="hljs-literal">true</span>;<br>		&#125;<br>	&#125;<br>	<span class="hljs-comment">/* Mark it as in the process of being reaped. */</span><br>	<span class="hljs-keyword">if</span> (dead)<br>		p-&gt;exit_state = EXIT_DEAD;<br>	<span class="hljs-keyword">return</span> dead;<br>&#125;<br><br><span class="hljs-comment">/**</span><br><span class="hljs-comment"> * __ptrace_unlink - unlink ptracee and restore its execution state</span><br><span class="hljs-comment"> * @child: ptracee to be unlinked</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * Remove @child from the ptrace list, move it back to the original parent,</span><br><span class="hljs-comment"> * and restore the execution state so that it conforms to the group stop</span><br><span class="hljs-comment"> * state.</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * Unlinking can happen via two paths - explicit PTRACE_DETACH or ptracer</span><br><span class="hljs-comment"> * exiting.  For PTRACE_DETACH, unless the ptracee has been killed between</span><br><span class="hljs-comment"> * ptrace_check_attach() and here, it&#x27;s guaranteed to be in TASK_TRACED.</span><br><span class="hljs-comment"> * If the ptracer is exiting, the ptracee can be in any state.</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * After detach, the ptracee should be in a state which conforms to the</span><br><span class="hljs-comment"> * group stop.  If the group is stopped or in the process of stopping, the</span><br><span class="hljs-comment"> * ptracee should be put into TASK_STOPPED; otherwise, it should be woken</span><br><span class="hljs-comment"> * up from TASK_TRACED.</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * If the ptracee is in TASK_TRACED and needs to be moved to TASK_STOPPED,</span><br><span class="hljs-comment"> * it goes through TRACED -&gt; RUNNING -&gt; STOPPED transition which is similar</span><br><span class="hljs-comment"> * to but in the opposite direction of what happens while attaching to a</span><br><span class="hljs-comment"> * stopped task.  However, in this direction, the intermediate RUNNING</span><br><span class="hljs-comment"> * state is not hidden even from the current ptracer and if it immediately</span><br><span class="hljs-comment"> * re-attaches and performs a WNOHANG wait(2), it may fail.</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * CONTEXT:</span><br><span class="hljs-comment"> * write_lock_irq(tasklist_lock)</span><br><span class="hljs-comment"> */</span><br><span class="hljs-type">void</span> __ptrace_unlink(<span class="hljs-keyword">struct</span> task_struct *child)<br>&#123;<br>	<span class="hljs-type">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">cred</span> *<span class="hljs-title">old_cred</span>;</span><br>	BUG_ON(!child-&gt;ptrace);<br><br>	clear_tsk_thread_flag(child, TIF_SYSCALL_TRACE);<br><span class="hljs-meta">#<span class="hljs-keyword">ifdef</span> TIF_SYSCALL_EMU</span><br>	clear_tsk_thread_flag(child, TIF_SYSCALL_EMU);<br><span class="hljs-meta">#<span class="hljs-keyword">endif</span></span><br><br>	child-&gt;parent = child-&gt;real_parent;<br>	list_del_init(&amp;child-&gt;ptrace_entry);<br>	old_cred = child-&gt;ptracer_cred;<br>	child-&gt;ptracer_cred = <span class="hljs-literal">NULL</span>;<br>	put_cred(old_cred);<br><br>	spin_lock(&amp;child-&gt;sighand-&gt;siglock);<br>	child-&gt;ptrace = <span class="hljs-number">0</span>;<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Clear all pending traps and TRAPPING.  TRAPPING should be</span><br><span class="hljs-comment">	 * cleared regardless of JOBCTL_STOP_PENDING.  Do it explicitly.</span><br><span class="hljs-comment">	 */</span><br>	task_clear_jobctl_pending(child, JOBCTL_TRAP_MASK);<br>	task_clear_jobctl_trapping(child);<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Reinstate JOBCTL_STOP_PENDING if group stop is in effect and</span><br><span class="hljs-comment">	 * @child isn&#x27;t dead.</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-keyword">if</span> (!(child-&gt;flags &amp; PF_EXITING) &amp;&amp;<br>	    (child-&gt;signal-&gt;flags &amp; SIGNAL_STOP_STOPPED ||<br>	     child-&gt;signal-&gt;group_stop_count)) &#123;<br>		child-&gt;jobctl |= JOBCTL_STOP_PENDING;<br><br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * This is only possible if this thread was cloned by the</span><br><span class="hljs-comment">		 * traced task running in the stopped group, set the signal</span><br><span class="hljs-comment">		 * for the future reports.</span><br><span class="hljs-comment">		 * <span class="hljs-doctag">FIXME:</span> we should change ptrace_init_task() to handle this</span><br><span class="hljs-comment">		 * case.</span><br><span class="hljs-comment">		 */</span><br>		<span class="hljs-keyword">if</span> (!(child-&gt;jobctl &amp; JOBCTL_STOP_SIGMASK))<br>			child-&gt;jobctl |= SIGSTOP;<br>	&#125;<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * If transition to TASK_STOPPED is pending or in TASK_TRACED, kick</span><br><span class="hljs-comment">	 * @child in the butt.  Note that @resume should be used iff @child</span><br><span class="hljs-comment">	 * is in TASK_TRACED; otherwise, we might unduly disrupt</span><br><span class="hljs-comment">	 * TASK_KILLABLE sleeps.</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-keyword">if</span> (child-&gt;jobctl &amp; JOBCTL_STOP_PENDING || task_is_traced(child))<br>		ptrace_signal_wake_up(child, <span class="hljs-literal">true</span>);<br><br>	spin_unlock(&amp;child-&gt;sighand-&gt;siglock);<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>第二种状态就要复杂了。task退出会调用exit.c中的do_exit做退出清理。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-type">void</span> __noreturn <span class="hljs-title function_">do_exit</span><span class="hljs-params">(<span class="hljs-type">long</span> code)</span><br>&#123;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">tsk</span> =</span> current;<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * 省略代码</span><br><span class="hljs-comment">	 */</span><br>	ptrace_event(PTRACE_EVENT_EXIT, code);<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * 省略代码</span><br><span class="hljs-comment">	 */</span><br>	tsk-&gt;exit_code = code;<br><br>    <span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * 省略代码</span><br><span class="hljs-comment">	 */</span><br>	exit_notify(tsk, group_dead);<br>    <span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * 省略代码</span><br><span class="hljs-comment">	 */</span><br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>使用ptrace_event通知ptracer，tracee要退出了。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-comment">/**</span><br><span class="hljs-comment"> * ptrace_event - possibly stop for a ptrace event notification</span><br><span class="hljs-comment"> * @event:	%PTRACE_EVENT_* value to report</span><br><span class="hljs-comment"> * @message:	value for %PTRACE_GETEVENTMSG to return</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * Check whether @event is enabled and, if so, report @event and @message</span><br><span class="hljs-comment"> * to the ptrace parent.</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * Called without locks.</span><br><span class="hljs-comment"> */</span><br><span class="hljs-type">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-type">void</span> <span class="hljs-title function_">ptrace_event</span><span class="hljs-params">(<span class="hljs-type">int</span> event, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> message)</span><br>&#123;<br>	<span class="hljs-keyword">if</span> (unlikely(ptrace_event_enabled(current, event))) &#123;<br>		current-&gt;ptrace_message = message;<br>		ptrace_notify((event &lt;&lt; <span class="hljs-number">8</span>) | SIGTRAP);<br>	&#125; <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event == PTRACE_EVENT_EXEC) &#123;<br>		<span class="hljs-comment">/* legacy EXEC report via SIGTRAP */</span><br>		<span class="hljs-keyword">if</span> ((current-&gt;ptrace &amp; (PT_PTRACED|PT_SEIZED)) == PT_PTRACED)<br>			send_sig(SIGTRAP, current, <span class="hljs-number">0</span>);<br>	&#125;<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>如果当前为ptracer时forget_original_parent中退出ptraced的task调用detach还原parent，如果当前task的tracee同时task为线程组leader时通过ptracer。注意只有leader需要通知ptracer。当前task为EXIT_ZOMBIE状态，并不是EXIT_DEAD，需要等待wait收割EXIT_ZOMBIE状态。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-comment">/*</span><br><span class="hljs-comment"> * Send signals to all our closest relatives so that they know</span><br><span class="hljs-comment"> * to properly mourn us..</span><br><span class="hljs-comment"> */</span><br><span class="hljs-type">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">exit_notify</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *tsk, <span class="hljs-type">int</span> group_dead)</span><br>&#123;<br>	<span class="hljs-type">bool</span> autoreap;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">p</span>, *<span class="hljs-title">n</span>;</span><br>	LIST_HEAD(dead);<br><br>	write_lock_irq(&amp;tasklist_lock);<br>	forget_original_parent(tsk, &amp;dead);<br><br>	<span class="hljs-keyword">if</span> (group_dead)<br>		kill_orphaned_pgrp(tsk-&gt;group_leader, <span class="hljs-literal">NULL</span>);<br><br>	tsk-&gt;exit_state = EXIT_ZOMBIE;<br>	<span class="hljs-keyword">if</span> (unlikely(tsk-&gt;ptrace)) &#123;<br>		<span class="hljs-type">int</span> sig = thread_group_leader(tsk) &amp;&amp;<br>				thread_group_empty(tsk) &amp;&amp;<br>				!ptrace_reparented(tsk) ?<br>			tsk-&gt;exit_signal : SIGCHLD;<br>		autoreap = do_notify_parent(tsk, sig);<br>	&#125; <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (thread_group_leader(tsk)) &#123;<br>		autoreap = thread_group_empty(tsk) &amp;&amp;<br>			do_notify_parent(tsk, tsk-&gt;exit_signal);<br>	&#125; <span class="hljs-keyword">else</span> &#123;<br>		autoreap = <span class="hljs-literal">true</span>;<br>	&#125;<br><br>	<span class="hljs-keyword">if</span> (autoreap) &#123;<br>		tsk-&gt;exit_state = EXIT_DEAD;<br>		list_add(&amp;tsk-&gt;ptrace_entry, &amp;dead);<br>	&#125;<br><br>	<span class="hljs-comment">/* mt-exec, de_thread() is waiting for group leader */</span><br>	<span class="hljs-keyword">if</span> (unlikely(tsk-&gt;signal-&gt;notify_count &lt; <span class="hljs-number">0</span>))<br>		wake_up_process(tsk-&gt;signal-&gt;group_exit_task);<br>	write_unlock_irq(&amp;tasklist_lock);<br><br>	list_for_each_entry_safe(p, n, &amp;dead, ptrace_entry) &#123;<br>		list_del_init(&amp;p-&gt;ptrace_entry);<br>		release_task(p);<br>	&#125;<br>&#125;<br><br><span class="hljs-type">static</span> <span class="hljs-keyword">struct</span> task_struct *<span class="hljs-title function_">find_child_reaper</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *father,</span><br><span class="hljs-params">						<span class="hljs-keyword">struct</span> list_head *dead)</span><br>	__<span class="hljs-title function_">releases</span><span class="hljs-params">(&amp;tasklist_lock)</span><br>	__<span class="hljs-title function_">acquires</span><span class="hljs-params">(&amp;tasklist_lock)</span><br>&#123;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">pid_namespace</span> *<span class="hljs-title">pid_ns</span> =</span> task_active_pid_ns(father);<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">reaper</span> =</span> pid_ns-&gt;child_reaper;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">p</span>, *<span class="hljs-title">n</span>;</span><br><br>	<span class="hljs-keyword">if</span> (likely(reaper != father))<br>		<span class="hljs-keyword">return</span> reaper;<br><br>	reaper = find_alive_thread(father);<br>	<span class="hljs-keyword">if</span> (reaper) &#123;<br>		pid_ns-&gt;child_reaper = reaper;<br>		<span class="hljs-keyword">return</span> reaper;<br>	&#125;<br><br>	write_unlock_irq(&amp;tasklist_lock);<br><br>	list_for_each_entry_safe(p, n, dead, ptrace_entry) &#123;<br>		list_del_init(&amp;p-&gt;ptrace_entry);<br>		release_task(p);<br>	&#125;<br><br>	zap_pid_ns_processes(pid_ns);<br>	write_lock_irq(&amp;tasklist_lock);<br><br>	<span class="hljs-keyword">return</span> father;<br>&#125;<br><br><span class="hljs-comment">/*</span><br><span class="hljs-comment"> * Detach all tasks we were using ptrace on. Called with tasklist held</span><br><span class="hljs-comment"> * for writing.</span><br><span class="hljs-comment"> */</span><br><span class="hljs-type">void</span> <span class="hljs-title function_">exit_ptrace</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *tracer, <span class="hljs-keyword">struct</span> list_head *dead)</span><br>&#123;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">p</span>, *<span class="hljs-title">n</span>;</span><br><br>	list_for_each_entry_safe(p, n, &amp;tracer-&gt;ptraced, ptrace_entry) &#123;<br>		<span class="hljs-keyword">if</span> (unlikely(p-&gt;ptrace &amp; PT_EXITKILL))<br>			send_sig_info(SIGKILL, SEND_SIG_PRIV, p);<br><br>		<span class="hljs-keyword">if</span> (__ptrace_detach(tracer, p))<br>			list_add(&amp;p-&gt;ptrace_entry, dead);<br>	&#125;<br>&#125;<br><br><span class="hljs-comment">/*</span><br><span class="hljs-comment"> * This does two things:</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * A.  Make init inherit all the child processes</span><br><span class="hljs-comment"> * B.  Check to see if any process groups have become orphaned</span><br><span class="hljs-comment"> *	as a result of our exiting, and if they have any stopped</span><br><span class="hljs-comment"> *	jobs, send them a SIGHUP and then a SIGCONT.  (POSIX 3.2.2.2)</span><br><span class="hljs-comment"> */</span><br><span class="hljs-type">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">forget_original_parent</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *father,</span><br><span class="hljs-params">					<span class="hljs-keyword">struct</span> list_head *dead)</span><br>&#123;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">p</span>, *<span class="hljs-title">t</span>, *<span class="hljs-title">reaper</span>;</span><br><br>	<span class="hljs-keyword">if</span> (unlikely(!list_empty(&amp;father-&gt;ptraced)))<br>		exit_ptrace(father, dead);<br><br>	<span class="hljs-comment">/* Can drop and reacquire tasklist_lock */</span><br>	reaper = find_child_reaper(father, dead);<br>	<span class="hljs-keyword">if</span> (list_empty(&amp;father-&gt;children))<br>		<span class="hljs-keyword">return</span>;<br><br>	reaper = find_new_reaper(father, reaper);<br>	list_for_each_entry(p, &amp;father-&gt;children, sibling) &#123;<br>		for_each_thread(p, t) &#123;<br>			RCU_INIT_POINTER(t-&gt;real_parent, reaper);<br>			BUG_ON((!t-&gt;ptrace) != (rcu_access_pointer(t-&gt;parent) == father));<br>			<span class="hljs-keyword">if</span> (likely(!t-&gt;ptrace))<br>				t-&gt;parent = t-&gt;real_parent;<br>			<span class="hljs-keyword">if</span> (t-&gt;pdeath_signal)<br>				group_send_sig_info(t-&gt;pdeath_signal,<br>						    SEND_SIG_NOINFO, t,<br>						    PIDTYPE_TGID);<br>		&#125;<br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * If this is a threaded reparent there is no need to</span><br><span class="hljs-comment">		 * notify anyone anything has happened.</span><br><span class="hljs-comment">		 */</span><br>		<span class="hljs-keyword">if</span> (!same_thread_group(reaper, father))<br>			reparent_leader(father, p, dead);<br>	&#125;<br>	list_splice_tail_init(&amp;father-&gt;children, &amp;reaper-&gt;children);<br>&#125;<br></code></pre></td></tr></table></figure>
+
+<p>tracee退出时do_notify_parent会通知ptracer，do_wait调用wait_task_zombie收割zombie。tracee状态EXIT_DEAD或EXIT_TRACE，仅当tracee为线程组leader时被设置为EXIT_TRACE，准备通知real_parent当前task退出。EXIT_DEAD后才是真正析构task。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-comment">/*</span><br><span class="hljs-comment"> * Handle sys_wait4 work for one task in state EXIT_ZOMBIE.  We hold</span><br><span class="hljs-comment"> * read_lock(&amp;tasklist_lock) on entry.  If we return zero, we still hold</span><br><span class="hljs-comment"> * the lock and this task is uninteresting.  If we return nonzero, we have</span><br><span class="hljs-comment"> * released the lock and the system call should return.</span><br><span class="hljs-comment"> */</span><br><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">wait_task_zombie</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> wait_opts *wo, <span class="hljs-keyword">struct</span> task_struct *p)</span><br>&#123;<br>	<span class="hljs-type">int</span> state, status;<br>	<span class="hljs-type">pid_t</span> pid = task_pid_vnr(p);<br>	<span class="hljs-type">uid_t</span> uid = from_kuid_munged(current_user_ns(), task_uid(p));<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">waitid_info</span> *<span class="hljs-title">infop</span>;</span><br><br>	<span class="hljs-keyword">if</span> (!likely(wo-&gt;wo_flags &amp; WEXITED))<br>		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;<br><br>	<span class="hljs-keyword">if</span> (unlikely(wo-&gt;wo_flags &amp; WNOWAIT)) &#123;<br>		status = p-&gt;exit_code;<br>		get_task_struct(p);<br>		read_unlock(&amp;tasklist_lock);<br>		sched_annotate_sleep();<br>		<span class="hljs-keyword">if</span> (wo-&gt;wo_rusage)<br>			getrusage(p, RUSAGE_BOTH, wo-&gt;wo_rusage);<br>		put_task_struct(p);<br>		<span class="hljs-keyword">goto</span> out_info;<br>	&#125;<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Move the task&#x27;s state to DEAD/TRACE, only one thread can do this.</span><br><span class="hljs-comment">	 */</span><br>	state = (ptrace_reparented(p) &amp;&amp; thread_group_leader(p)) ?<br>		EXIT_TRACE : EXIT_DEAD;<br>	<span class="hljs-keyword">if</span> (cmpxchg(&amp;p-&gt;exit_state, EXIT_ZOMBIE, state) != EXIT_ZOMBIE)<br>		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;<br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * We own this thread, nobody else can reap it.</span><br><span class="hljs-comment">	 */</span><br>	read_unlock(&amp;tasklist_lock);<br>	sched_annotate_sleep();<br><br>	<span class="hljs-comment">/*</span><br><span class="hljs-comment">	 * Check thread_group_leader() to exclude the traced sub-threads.</span><br><span class="hljs-comment">	 */</span><br>	<span class="hljs-keyword">if</span> (state == EXIT_DEAD &amp;&amp; thread_group_leader(p)) &#123;<br>		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">signal_struct</span> *<span class="hljs-title">sig</span> =</span> p-&gt;signal;<br>		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">signal_struct</span> *<span class="hljs-title">psig</span> =</span> current-&gt;signal;<br>		<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> maxrss;<br>		u64 tgutime, tgstime;<br><br>		<span class="hljs-comment">/*</span><br><span class="hljs-comment">		 * The resource counters for the group leader are in its</span><br><span class="hljs-comment">		 * own task_struct.  Those for dead threads in the group</span><br><span class="hljs-comment">		 * are in its signal_struct, as are those for the child</span><br><span class="hljs-comment">		 * processes it has previously reaped.  All these</span><br><span class="hljs-comment">		 * accumulate in the parent&#x27;s signal_struct c* fields.</span><br><span class="hljs-comment">		 *</span><br><span class="hljs-comment">		 * We don&#x27;t bother to take a lock here to protect these</span><br><span class="hljs-comment">		 * p-&gt;signal fields because the whole thread group is dead</span><br><span class="hljs-comment">		 * and nobody can change them.</span><br><span class="hljs-comment">		 *</span><br><span class="hljs-comment">		 * psig-&gt;stats_lock also protects us from our sub-theads</span><br><span class="hljs-comment">		 * which can reap other children at the same time. Until</span><br><span class="hljs-comment">		 * we change k_getrusage()-like users to rely on this lock</span><br><span class="hljs-comment">		 * we have to take -&gt;siglock as well.</span><br><span class="hljs-comment">		 *</span><br><span class="hljs-comment">		 * We use thread_group_cputime_adjusted() to get times for</span><br><span class="hljs-comment">		 * the thread group, which consolidates times for all threads</span><br><span class="hljs-comment">		 * in the group including the group leader.</span><br><span class="hljs-comment">		 */</span><br>		thread_group_cputime_adjusted(p, &amp;tgutime, &amp;tgstime);<br>		spin_lock_irq(&amp;current-&gt;sighand-&gt;siglock);<br>		write_seqlock(&amp;psig-&gt;stats_lock);<br>		psig-&gt;cutime += tgutime + sig-&gt;cutime;<br>		psig-&gt;cstime += tgstime + sig-&gt;cstime;<br>		psig-&gt;cgtime += task_gtime(p) + sig-&gt;gtime + sig-&gt;cgtime;<br>		psig-&gt;cmin_flt +=<br>			p-&gt;min_flt + sig-&gt;min_flt + sig-&gt;cmin_flt;<br>		psig-&gt;cmaj_flt +=<br>			p-&gt;maj_flt + sig-&gt;maj_flt + sig-&gt;cmaj_flt;<br>		psig-&gt;cnvcsw +=<br>			p-&gt;nvcsw + sig-&gt;nvcsw + sig-&gt;cnvcsw;<br>		psig-&gt;cnivcsw +=<br>			p-&gt;nivcsw + sig-&gt;nivcsw + sig-&gt;cnivcsw;<br>		psig-&gt;cinblock +=<br>			task_io_get_inblock(p) +<br>			sig-&gt;inblock + sig-&gt;cinblock;<br>		psig-&gt;coublock +=<br>			task_io_get_oublock(p) +<br>			sig-&gt;oublock + sig-&gt;coublock;<br>		maxrss = max(sig-&gt;maxrss, sig-&gt;cmaxrss);<br>		<span class="hljs-keyword">if</span> (psig-&gt;cmaxrss &lt; maxrss)<br>			psig-&gt;cmaxrss = maxrss;<br>		task_io_accounting_add(&amp;psig-&gt;ioac, &amp;p-&gt;ioac);<br>		task_io_accounting_add(&amp;psig-&gt;ioac, &amp;sig-&gt;ioac);<br>		write_sequnlock(&amp;psig-&gt;stats_lock);<br>		spin_unlock_irq(&amp;current-&gt;sighand-&gt;siglock);<br>	&#125;<br><br>	<span class="hljs-keyword">if</span> (wo-&gt;wo_rusage)<br>		getrusage(p, RUSAGE_BOTH, wo-&gt;wo_rusage);<br>	status = (p-&gt;signal-&gt;flags &amp; SIGNAL_GROUP_EXIT)<br>		? p-&gt;signal-&gt;group_exit_code : p-&gt;exit_code;<br>	wo-&gt;wo_stat = status;<br><br>	<span class="hljs-keyword">if</span> (state == EXIT_TRACE) &#123;<br>		write_lock_irq(&amp;tasklist_lock);<br>		<span class="hljs-comment">/* We dropped tasklist, ptracer could die and untrace */</span><br>		ptrace_unlink(p);<br><br>		<span class="hljs-comment">/* If parent wants a zombie, don&#x27;t release it now */</span><br>		state = EXIT_ZOMBIE;<br>		<span class="hljs-keyword">if</span> (do_notify_parent(p, p-&gt;exit_signal))<br>			state = EXIT_DEAD;<br>		p-&gt;exit_state = state;<br>		write_unlock_irq(&amp;tasklist_lock);<br>	&#125;<br>	<span class="hljs-keyword">if</span> (state == EXIT_DEAD)<br>		release_task(p);<br><br>out_info:<br>	infop = wo-&gt;wo_info;<br>	<span class="hljs-keyword">if</span> (infop) &#123;<br>		<span class="hljs-keyword">if</span> ((status &amp; <span class="hljs-number">0x7f</span>) == <span class="hljs-number">0</span>) &#123;<br>			infop-&gt;cause = CLD_EXITED;<br>			infop-&gt;status = status &gt;&gt; <span class="hljs-number">8</span>;<br>		&#125; <span class="hljs-keyword">else</span> &#123;<br>			infop-&gt;cause = (status &amp; <span class="hljs-number">0x80</span>) ? CLD_DUMPED : CLD_KILLED;<br>			infop-&gt;status = status &amp; <span class="hljs-number">0x7f</span>;<br>		&#125;<br>		infop-&gt;pid = pid;<br>		infop-&gt;uid = uid;<br>	&#125;<br><br>	<span class="hljs-keyword">return</span> pid;<br>&#125;<br></code></pre></td></tr></table></figure>
+
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/Kernel/" class="print-no-link">#Kernel</a>
+      
+        <a href="/tags/Ptrace/" class="print-no-link">#Ptrace</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Kernel ptrace</div>
+      <div>https://a5245.github.io/2026/03/20/Kernel-ptrace/</div>
+    </div>
+    <div class="license-meta">
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>Posted on</div>
+          <div>March 20, 2026</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>Licensed under</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - Attribution">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2024/07/11/AntiObfuscation/" title="libshpssdk.so反混淆">
+                        <span class="hidden-mobile">libshpssdk.so反混淆</span>
+                        <span class="visible-mobile">Next</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>Table of Contents</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">Search</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">Keyword</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a> <i class="iconfont icon-love"></i> <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a> 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://lib.baomitu.com/nprogress/0.2.0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://lib.baomitu.com/nprogress/0.2.0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://lib.baomitu.com/jquery/3.6.4/jquery.min.js" ></script>
+<script  src="https://lib.baomitu.com/twitter-bootstrap/4.6.1/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://lib.baomitu.com/typed.js/2.0.12/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/tocbot/4.20.1/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    function isExpandAllEnabled() {
+      return CONFIG.toc && CONFIG.toc.expand_all === true;
+    }
+    function expandAllToc() {
+      if (!isExpandAllEnabled()) { return; }
+      jQuery('#toc-body .tocbot-is-collapsed').removeClass('tocbot-is-collapsed');
+    }
+    function updateTocToggle($li, $childList) {
+      var $toggle = $li.children('.toc-toggle');
+      if ($toggle.length === 0) { return; }
+      var collapsed = $childList.hasClass('tocbot-is-collapsed');
+      $toggle
+        .toggleClass('toc-toggle-collapsed', collapsed)
+        .toggleClass('toc-toggle-expanded', !collapsed);
+    }
+    function bindTocToggle() {
+      if (!isExpandAllEnabled()) { return; }
+      jQuery('#toc-body .toc-list-item').each(function() {
+        var $li = jQuery(this);
+        var $childList = $li.children('ol');
+        if ($childList.length === 0) {
+          if ($li.children('.toc-toggle').length === 0) {
+            $li.prepend('<span class="toc-toggle toc-toggle-placeholder" aria-hidden="true">›</span>');
+          }
+          return;
+        }
+
+        if ($li.children('.toc-toggle').length === 0) {
+          $li.prepend('<span class="toc-toggle toc-toggle-expanded" aria-hidden="true">›</span>');
+        }
+        updateTocToggle($li, $childList);
+      });
+      jQuery('#toc-body').off('click.tocToggle').on('click.tocToggle', '.toc-toggle', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var $li = jQuery(this).parent('.toc-list-item');
+        var $childList = $li.children('ol');
+        if ($childList.length === 0) { return; }
+        $childList.toggleClass('tocbot-is-collapsed');
+        updateTocToggle($li, $childList);
+      });
+      if (!window.__tocToggleObserver) {
+        window.__tocToggleObserver = new MutationObserver(function(mutations) {
+          mutations.forEach(function(mutation) {
+            if (mutation.type !== 'attributes' || mutation.attributeName !== 'class') { return; }
+            var $list = jQuery(mutation.target);
+            var $li = $list.parent('.toc-list-item');
+            if ($li.length === 0) { return; }
+            updateTocToggle($li, $list);
+          });
+        });
+        jQuery('#toc-body ol').each(function() {
+          window.__tocToggleObserver.observe(this, { attributes: true });
+        });
+      }
+    }
+    var tocConfig = Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc);
+    if (isExpandAllEnabled()) {
+      tocConfig.collapseDepth = 6;
+    }
+    window.tocbot.init(tocConfig);
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+    expandAllToc();
+    bindTocToggle();
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+        expandAllToc();
+        bindTocToggle();
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://lib.baomitu.com/clipboard.js/2.0.11/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/anchor-js/4.3.1/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/fancybox/3.5.7/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">Blog works best with JavaScript enabled</div>
+  </noscript>
+</body>
+</html>
